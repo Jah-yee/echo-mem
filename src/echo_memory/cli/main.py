@@ -16,6 +16,7 @@ from echo_memory.audit.get_audit_log import get_fact_history
 from echo_memory.cli import (
     adopt,
     calibrate,
+    forget,
     health,
     infer_causal,
     initdb,
@@ -253,6 +254,38 @@ def _add_project_parsers(sub) -> None:
     un.add_argument("--node", metavar="ID", help="the node holding the wrong alias")
     un.add_argument("--alias", metavar="NAME", help="the alias to take back")
     un.add_argument("--session-id", metavar="ID", help="session to record in the audit log")
+
+    fg = sub.add_parser(
+        "forget", help="erase facts outright, for a data subject's deletion request"
+    )
+    # Dry run by default, so the only flag that deletes is --confirm. There is
+    # no undo and the plan is cheap, so showing it first is free.
+    fg.add_argument("--fact", metavar="ID", help="one fact, and every version of its triple")
+    fg.add_argument(
+        "--entity", metavar="NAME",
+        help="an entity, its aliases, and every fact touching it",
+    )
+    fg.add_argument(
+        "--whole-scope", action="store_true", dest="whole_scope",
+        help="everything in this scope. Not --scope, which already selects which scope",
+    )
+    fg.add_argument(
+        "--search", metavar="TERM",
+        help="facts whose text mentions TERM, listed for a human to confirm. "
+             "A name inside a fact about other entities is not reachable "
+             "structurally, and a text match is not a subject, so this never erases",
+    )
+    fg.add_argument(
+        "--confirm", action="store_true",
+        help="actually erase. Without it, nothing is removed",
+    )
+    fg.add_argument("--reason", metavar="TEXT", help="recorded on the erasure, for the audit trail")
+    fg.add_argument("--ref", metavar="TEXT", help="the ticket this answers, never its contents")
+    fg.add_argument("--by", metavar="WHO", help="who requested it (default: cli)")
+    fg.add_argument(
+        "--log", action="store_true",
+        help="every erasure recorded for this scope. What a restore has to replay",
+    )
 
     notice = sub.add_parser(
         "notice", help="queue a memory file for ingestion (called by the capture hook)"
@@ -643,6 +676,7 @@ _PROJECT_COMMANDS = {
     "reattribute": reattribute_cmd.run,
     "unmerge": unmerge.run,
     "calibrate": calibrate.run,
+    "forget": forget.run,
     "merge": merge.run,
     "notice": queue_cmd.run_notice,
     "pending": queue_cmd.run_pending,

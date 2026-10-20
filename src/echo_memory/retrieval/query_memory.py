@@ -10,6 +10,7 @@ import os
 import re
 import time
 
+from echo_memory import erasure
 from echo_memory.infra.db import GRAPH_NAME as GRAPH
 from echo_memory.infra.logging import get_logger, log_query_memory
 from echo_memory.retrieval import bm25, salience
@@ -1163,4 +1164,15 @@ def query_memory(
         len(facts),
         (time.perf_counter() - start) * 1000,
     )
-    return {"facts": facts}
+    result = {"facts": facts}
+
+    # An as_of answer is a claim about what was believed at a past moment, and
+    # erasure makes that claim incomplete without saying so. Reported rather
+    # than hidden: the whole reason to have bi-temporality is that a reader can
+    # trust it, and a silently thinner past is worse than a smaller one that
+    # admits it. Absent when nothing was erased, so the common response shape
+    # does not change.
+    excluded = erasure.excluded_after(conn, group_id, as_of)
+    if excluded is not None:
+        result["excluded_by_erasure"] = excluded
+    return result
