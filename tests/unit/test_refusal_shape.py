@@ -7,7 +7,12 @@ other key to inspect:
   refused    validation rejected it
   deferred   an entity mention was similar enough to an existing node to be
              worth asking about and not similar enough to merge
-  unchanged  every fact already exists, unaltered
+  unchanged  every fact already exists word for word
+  no_facts   the episode asserted none
+
+The last two were one case until 2026-10-21, and conflating them meant the
+message "every fact in this episode already exists, unaltered" could only
+fire for an episode that asserted no facts, where it was false.
 
 The deferred case is the one that hurts at scale and looks most like success:
 a well formed response, no error, `isError` false, and nothing written. A
@@ -69,11 +74,46 @@ def test_a_deferred_episode_says_it_was_deferred_and_why():
     assert "error" not in out, "a deferral is not an error and must not claim to be"
 
 
-def test_an_episode_that_changes_nothing_says_so():
-    out = _blank()
+def test_an_episode_whose_facts_all_already_exist_says_unchanged():
+    """And says it is a success, because a caller that reads "not stored" and
+    retries will get the same answer forever."""
+    out = _blank(restated=["1125899906843001"])
 
     assert out["stored"] is False
     assert out["not_stored"] == "unchanged"
+    assert "already exist" in out["not_stored_detail"]
+
+
+def test_an_episode_that_asserted_no_facts_is_not_called_unchanged():
+    """Nodes may well have been created. Before these were separated, the
+    only case that could reach "unchanged" was this one, where the message
+    was wrong."""
+    out = _blank()
+
+    assert out["stored"] is False
+    assert out["not_stored"] == "no_facts"
+    assert "registered" in out["not_stored_detail"]
+
+
+def test_a_partly_deferred_write_says_it_was_partial():
+    """Nine of ten facts dropped used to look exactly like ten of ten
+    written. That is how 680 LoCoMo turns became 336 facts with the ingest
+    reporting success throughout."""
+    out = _blank(
+        edges_created=["1125899906843001"],
+        ambiguous_entities=[{"mention": "John", "candidates": []}],
+    )
+
+    assert out["stored"] is True, "something really was written"
+    assert out["partial"] is True
+    assert "held on ambiguous entities" in out["partial_detail"]
+
+
+def test_a_clean_write_is_not_marked_partial():
+    out = _blank(edges_created=["1125899906843001"])
+
+    assert out["stored"] is True
+    assert "partial" not in out
 
 
 def test_a_real_write_is_marked_stored():
@@ -98,3 +138,33 @@ def test_the_one_check_a_caller_writes_is_correct_everywhere():
     ]
 
     assert [c["stored"] for c in cases] == [False, False, False, True]
+
+
+def test_an_outage_is_marked_retryable_and_a_validation_error_is_not():
+    """The two wrong guesses a caller makes without this are opposite:
+    hammering a validation error forever, or dropping data on a database
+    blip."""
+    validation = _refused("fact text too long")
+    outage = _refused("memory database unavailable", kind="unavailable")
+
+    assert validation["not_stored"] == "refused"
+    assert validation["retryable"] is False
+    assert outage["not_stored"] == "unavailable"
+    assert outage["retryable"] is True
+    assert "worth retrying" in outage["not_stored_detail"]
+
+
+def test_the_kind_is_never_leaked_to_the_caller():
+    """It is how _refused talks to _not_stored, not part of the contract."""
+    assert "_kind" not in _refused("x")
+    assert "_kind" not in _refused("x", kind="unavailable")
+
+
+def test_every_refusal_still_answers_edges_created():
+    """The property the whole shape exists for: one check works on every
+    path."""
+    for kind in ("refused", "unavailable"):
+        out = _refused("something", kind=kind)
+        assert ANSWER_KEYS <= set(out), sorted(out)
+        assert out["edges_created"] == []
+        assert out["stored"] is False
