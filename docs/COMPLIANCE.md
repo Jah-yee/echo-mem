@@ -73,6 +73,27 @@ This satisfies **SLSA Build L2**: a hosted build service, signed provenance, and
 an identity tied to the workflow rather than to a person. L3 additionally wants
 stronger isolation between build steps and is not claimed.
 
+Each release carries two attestations, which are different things and both real:
+
+- `*.publish.attestation`, PEP 740 files written by the PyPI upload itself
+- `multiple.intoto.jsonl`, a Sigstore bundle carrying an in-toto statement over
+  every distribution in the release, signed with the workflow's identity and
+  logged to Rekor
+
+The second exists because the first is not what a scanner looks for. OpenSSF
+Scorecard's Signed-Releases check reads release assets for `.asc`, `.sig`,
+`.minisig` or `.intoto.jsonl`, so it scored this project 0 while every release
+was in fact signed. The answer was to publish a second genuine artifact in the
+format the convention names, rather than to rename the first one into a format
+it is not: a verifier reaching for standard tooling has to find what the
+filename promises.
+
+The bundle is copied into `dist/` **after** the PyPI upload and before
+`gh release create`. `gh-action-pypi-publish` sends everything in its packages
+directory through twine, which refuses a file whose extension is not a
+distribution format, so staging it earlier fails the upload. Only the GitHub
+Release needs the file, and that step is last.
+
 Every GitHub Action used is pinned to a **commit SHA**, not a tag, so an action
 owner cannot repoint a version under us. Dependabot keeps those pins current.
 
